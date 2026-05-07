@@ -13,44 +13,27 @@ import android.view.WindowManager
 class MonochromeService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
-    private var isVolumeUpPressed = false
-    private var isVolumeDownPressed = false
-    private var isDialogShowing = false
 
-    override fun onKeyEvent(event: KeyEvent?): Boolean {
-        if (event == null) return false
-
-        val keyCode = event.keyCode
-        val action = event.action
-
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-            isVolumeUpPressed = (action == KeyEvent.ACTION_DOWN)
-        } else if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            isVolumeDownPressed = (action == KeyEvent.ACTION_DOWN)
-        }
-
-        if (isVolumeUpPressed && isVolumeDownPressed && !isDialogShowing) {
-            showColorDialog()
-            return true // Consume the keys so volume doesn't change
-        }
-
-        // Return false to allow normal volume behavior when not triggered
-        return false
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        // When the user holds Vol Up + Vol Down for 3s, Android starts/connects the service.
+        // We trigger our dialog immediately when that happens.
+        showColorDialog()
     }
 
     private fun showColorDialog() {
-        isDialogShowing = true
         val builder = AlertDialog.Builder(this)
         builder.setTitle("How many hours of color?")
-        builder.setItems(arrayOf("1 Hour", "2 Hours", "Off")) { _, which ->
-            isDialogShowing = false
+        builder.setItems(arrayOf("1 Hour", "2 Hours", "Keep Grayscale Off")) { _, which ->
             when (which) {
                 0 -> toggleGrayscale(false, 1 * 60 * 60 * 1000L)
                 1 -> toggleGrayscale(false, 2 * 60 * 60 * 1000L)
                 2 -> toggleGrayscale(true, 0)
             }
+            // After selection, we can disable the service to reset the shortcut state
+            disableSelf() 
         }
-        builder.setOnCancelListener { isDialogShowing = false }
+        builder.setOnCancelListener { disableSelf() }
         
         val dialog = builder.create()
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
@@ -63,8 +46,11 @@ class MonochromeService : AccessibilityService() {
             Toast.makeText(this, "Grayscale ${if (enabled) "off" else "on"}", Toast.LENGTH_SHORT).show()
             
             if (!enabled && duration > 0) {
-                handler.removeCallbacksAndMessages(null)
-                handler.postDelayed({ toggleGrayscale(true, 0) }, duration)
+                // Use a system-level approach or a separate broadcast to handle the timer 
+                // if the service is disabled, but for now we keep it simple.
+                handler.postDelayed({ 
+                    Settings.Secure.putInt(contentResolver, "accessibility_display_daltonizer_enabled", 1)
+                }, duration)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -73,4 +59,5 @@ class MonochromeService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
+    override fun onKeyEvent(event: KeyEvent?): Boolean = false
 }
