@@ -13,36 +13,45 @@ import android.view.WindowManager
 class MonochromeService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
-    private var isVolumeUp = false
-    private var isVolumeDown = false
+    private var isVolumeUpPressed = false
+    private var isVolumeDownPressed = false
+    private var isDialogShowing = false
 
     override fun onKeyEvent(event: KeyEvent?): Boolean {
         if (event == null) return false
 
-        when (event.keyCode) {
-            KeyEvent.KEYCODE_VOLUME_UP -> isVolumeUp = (event.action == KeyEvent.ACTION_DOWN)
-            KeyEvent.KEYCODE_VOLUME_DOWN -> isVolumeDown = (event.action == KeyEvent.ACTION_DOWN)
+        val keyCode = event.keyCode
+        val action = event.action
+
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            isVolumeUpPressed = (action == KeyEvent.ACTION_DOWN)
+        } else if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            isVolumeDownPressed = (action == KeyEvent.ACTION_DOWN)
         }
 
-        if (isVolumeUp && isVolumeDown) {
+        if (isVolumeUpPressed && isVolumeDownPressed && !isDialogShowing) {
             showColorDialog()
-            return true
+            return true // Consume the keys so volume doesn't change
         }
 
-        return super.onKeyEvent(event)
+        // Return false to allow normal volume behavior when not triggered
+        return false
     }
 
     private fun showColorDialog() {
-        // Basic dialog implementation
+        isDialogShowing = true
         val builder = AlertDialog.Builder(this)
         builder.setTitle("How many hours of color?")
         builder.setItems(arrayOf("1 Hour", "2 Hours", "Off")) { _, which ->
+            isDialogShowing = false
             when (which) {
                 0 -> toggleGrayscale(false, 1 * 60 * 60 * 1000L)
                 1 -> toggleGrayscale(false, 2 * 60 * 60 * 1000L)
                 2 -> toggleGrayscale(true, 0)
             }
         }
+        builder.setOnCancelListener { isDialogShowing = false }
+        
         val dialog = builder.create()
         dialog.window?.setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
         dialog.show()
