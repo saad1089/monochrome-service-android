@@ -10,29 +10,62 @@ import android.widget.Toast
 import android.app.AlertDialog
 import android.view.WindowManager
 
+import android.widget.EditText
+import android.text.InputType
+import android.widget.LinearLayout
+
 class MonochromeService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        // When the user holds Vol Up + Vol Down for 3s, Android starts/connects the service.
-        // We trigger our dialog immediately when that happens.
         showColorDialog()
     }
 
     private fun showColorDialog() {
         val builder = AlertDialog.Builder(this)
-        builder.setTitle("How many hours of color?")
-        builder.setItems(arrayOf("1 Hour", "2 Hours", "Keep Grayscale Off")) { _, which ->
-            when (which) {
-                0 -> toggleGrayscale(false, 1 * 60 * 60 * 1000L)
-                1 -> toggleGrayscale(false, 2 * 60 * 60 * 1000L)
-                2 -> toggleGrayscale(true, 0)
+        builder.setTitle("How many minutes of color?")
+        
+        // Create an input field
+        val input = EditText(this)
+        input.inputType = InputType.TYPE_CLASS_NUMBER
+        input.hint = "Minutes (Max 120)"
+        
+        val lp = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.MATCH_PARENT
+        )
+        val container = LinearLayout(this)
+        container.orientation = LinearLayout.VERTICAL
+        val padding = (16 * resources.displayMetrics.density).toInt()
+        container.setPadding(padding, padding, padding, 0)
+        container.addView(input, lp)
+        
+        builder.setView(container)
+
+        builder.setPositiveButton("Start") { _, _ ->
+            val minutesStr = input.text.toString()
+            var minutes = minutesStr.toIntOrNull() ?: 0
+            
+            // Cap at 120 minutes
+            if (minutes > 120) {
+                minutes = 120
             }
-            // After selection, we can disable the service to reset the shortcut state
-            disableSelf() 
+
+            if (minutes > 0) {
+                toggleGrayscale(false, minutes * 60 * 1000L)
+            } else {
+                toggleGrayscale(true, 0)
+            }
+            disableSelf()
         }
+        
+        builder.setNegativeButton("Cancel") { dialog, _ ->
+            dialog.cancel()
+            disableSelf()
+        }
+
         builder.setOnCancelListener { disableSelf() }
         
         val dialog = builder.create()
@@ -40,17 +73,21 @@ class MonochromeService : AccessibilityService() {
         dialog.show()
     }
 
-    private fun toggleGrayscale(enabled: Boolean, duration: Long) {
+    private fun toggleGrayscale(enabled: Boolean, durationMs: Long) {
         try {
-            Settings.Secure.putInt(contentResolver, "accessibility_display_daltonizer_enabled", if (enabled) 0 else 1)
-            Toast.makeText(this, "Grayscale ${if (enabled) "off" else "on"}", Toast.LENGTH_SHORT).show()
+            // daltonizer_enabled: 1 = Grayscale ON, 0 = Grayscale OFF (Color)
+            Settings.Secure.putInt(contentResolver, "accessibility_display_daltonizer_enabled", if (enabled) 1 else 0)
             
-            if (!enabled && duration > 0) {
-                // Use a system-level approach or a separate broadcast to handle the timer 
-                // if the service is disabled, but for now we keep it simple.
+            val status = if (enabled) "Grayscale ON" else "Color for ${durationMs / 60000} min"
+            Toast.makeText(this, status, Toast.LENGTH_SHORT).show()
+            
+            if (!enabled && durationMs > 0) {
+                // Clear any existing timers before setting a new one
+                handler.removeCallbacksAndMessages(null)
                 handler.postDelayed({ 
                     Settings.Secure.putInt(contentResolver, "accessibility_display_daltonizer_enabled", 1)
-                }, duration)
+                    // We can't easily toast here if the service is disabled, but the setting will change.
+                }, durationMs)
             }
         } catch (e: Exception) {
             e.printStackTrace()
